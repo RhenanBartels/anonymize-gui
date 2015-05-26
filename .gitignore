@@ -1,3 +1,7 @@
 #Python swap files
 *.swp
 *.swo
+#Matlab Auto Save Files
+*.m~
+#Mac files
+.DS_Store

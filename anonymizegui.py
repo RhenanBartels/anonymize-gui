@@ -7,18 +7,21 @@ import glob
 import hashlib
 import os
 import pdb
-import re
+import sys
 import time
 import Tkinter
 
 import tkFileDialog
+import tkMessageBox
+
+
+#TODO: NOT CREATING A FILE FOR EACH PATIENT. _list_dicom logi.
+reload(sys)
+sys.setdefaultencoding('utf-8')
 
 #Fields that will be removed
 FIELDS = [(0x10, 0x10), (0x08, 0x20), (0x08, 0x80), (0x08, 0x81),
         (0x08, 0x23), (0x08, 0x90), (0x08,0x1010), (0x10, 0x20), (0x20, 0x10)]
-
-#Regular Expression Pattern to the folders name
-PATTERN = r"\d{6, 8}[a-fA-F\d{10}]"
 
 class Gui(object):
     """
@@ -79,36 +82,31 @@ class Gui(object):
             folded called Anoymized.
 
         """
-        self.log("Anonymizing...")
         #Walk through the directory tree
         fields_folder = self._create_fields_folder()
+        common_folder = self._create_images_folder()
+        created_folders = [os.path.join(self.file_path, x) for x in
+                ["AnonymizedDicomFiles", "AnonymizedFieldsInformation"]]
+
         for current_folder, dirs, files in os.walk(self.file_path):
-            if self._list_dicom(current_folder):
-                parent_folder = self._get_parent_folder(current_folder)
-                if parent_folder == self.file_path:
-                    save_folder = os.path.join(current_folder,
-                            self._create_folder_name(parent_folder))
-                else:
-                    save_folder = os.path.join(parent_folder,
-                            self._create_folder_name(parent_folder))
+            parent_folder = self._get_parent_folder(current_folder)
+            if parent_folder == self.file_path and current_folder not in\
+                    created_folders:
+                seed = str(datetime.datetime.now())
+                save_folder = os.path.join(common_folder,
+                        self._create_folder_name(seed))
                 self._create_folder(save_folder)
                 self._create_patient_file(fields_folder, current_folder,
-                        parent_folder)
-                dicom_number = 1
+                            seed)
+            if save_folder in locals():
                 for name in files:
                     if name.endswith(".dcm"):
                         dicom_path = os.path.join(current_folder, name)
                         if not os.path.exists(os.path.join(
                             save_folder, name)):
-                            output_path = os.path.join(save_folder,
-                                    str(dicom_number) + ".dcm")
-                            self._anonymize_dicom(dicom_path, output_path)
-                            dicom_number += 1
+                            self._anonymize_dicom(dicom_path, save_folder)
 
-        self.log("Done!")
-
-    def log(self, msg):
-        self.verbose_string.set(msg)
+        tkMessageBox.showinfo("Say Hello", "Hello World")
 
     def _check_directory(self, path):
         """
@@ -121,7 +119,17 @@ class Gui(object):
 
     def _create_fields_folder(self):
         folder_name = os.path.join(self.file_path,
-                "AnonymizedFieldsInfomation")
+                "AnonymizedFieldsInformation")
+        self._create_folder(folder_name)
+        return folder_name
+
+    def _is_same_folder(self):
+        checkbox_state = self.check_box_val.get()
+        return checkbox_state
+
+    def _create_images_folder(self):
+        folder_name = os.path.join(self.file_path,
+                "AnonymizedDicomFiles")
         self._create_folder(folder_name)
         return folder_name
 
@@ -139,35 +147,45 @@ class Gui(object):
         parent_folder.pop(-1)
         return (os.sep).join(parent_folder)
 
-    def _anonymize_dicom(self, path, output_path):
+    def _anonymize_dicom(self, path, save_folder):
         """
             Run over all dicom files of the current folder
             and replace some fields by **********
         """
         dicom_obj = dicom.read_file(path)
+        try:
+            slice_position = str(dicom_obj[0x20, 0x1041].value)
+        except:
+            pass
         for field in FIELDS:
             dicom_obj[field].value = "**********"
+
+        output_path = os.path.join(save_folder, slice_position + ".dcm")
         dicom_obj.save_as(output_path)
 
     def _get_dicom_info(self, dicom_obj, new_id):
         dicom_info = {}
         dicom_info['New ID'] = new_id
         for field in FIELDS:
-            dicom_info[dicom_obj[field].name] = dicom_obj[field].value
+            try:
+                dicom_info[dicom_obj[field].name] = dicom_obj[field].value
+            except:
+                pass
         return dicom_info
 
     def _create_patient_file(self, path, current_folder,
-            parent_folder):
+            seed):
         file_extension = os.path.join(current_folder, "*.dcm")
         dicom_files = glob.glob(file_extension)
-        dicom_obj = dicom.read_file(dicom_files[0])
-        new_id = self._create_folder_name(parent_folder)
-        save_path = os.path.join(path, new_id + ".txt")
-        dicom_info = self._get_dicom_info(dicom_obj, new_id)
-        if not os.path.exists(save_path):
-            with open(save_path, 'a') as fobj:
-                for key, value in dicom_info.items():
-                    fobj.write(key + " - " + value + "\n")
+        if dicom_files:
+            dicom_obj = dicom.read_file(dicom_files[0])
+            new_id = self._create_folder_name(seed)
+            save_path = os.path.join(path, new_id + ".txt")
+            dicom_info = self._get_dicom_info(dicom_obj, new_id)
+            if not os.path.exists(save_path):
+                with open(save_path, 'a') as fobj:
+                    for key, value in dicom_info.items():
+                        fobj.write(key + " - " + value + "\n")
 
     def _list_dicom(self, path):
         """
